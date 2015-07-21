@@ -16,10 +16,11 @@ drawing = False   # true if mouse is pressed
 cArray = []   # stores new trajectory positions (temporary)
 fNo = 0   # stores the frame number
 tArray = []   # stores old trajectory positions
+objTag = None
 
-def findObject(frameNum, x=0, y=0):
+def findObject(frameNum, x=None, y=None):
     box = []
-    global width, height, objects, features
+    global width, height, objects, features, objTag
     for obj in objects:
         if obj.existsAtInstant(frameNum):
             objFeatures = [features[i] for i in obj.featureNumbers]
@@ -34,11 +35,12 @@ def findObject(frameNum, x=0, y=0):
             xmax = max(u)
             ymin = min(v)
             ymax = max(v)
-            if x == 0 and y == 0:
-                box.append([ymax, ymin, xmax, xmin])
+            if x == None and y == None:
+                box.append([ymax, ymin, xmax, xmin, obj.getNum()])
             if xmax > x > xmin and ymax > y > ymin:
-                    print "object detected: " + format(obj.getNum())
-                    print "object position: " + format(obj.getPositionAtInstant(frameNum).project(homography))
+                print "object detected: " + format(obj.getNum())
+                print "object position: " + format(obj.getPositionAtInstant(frameNum).project(homography))
+                objTag = obj.getNum()
     return box
 
 def drawTrajectory(frame, frameNum):
@@ -54,12 +56,19 @@ def drawTrajectory(frame, frameNum):
                     break
 
 def drawBox(frame, frameNum):
+    global objTag
     box = findObject(frameNum)
     for i in range(len(box)):
-        cv2.line(frame, (box[i][3], box[i][0]), (box[i][2], box[i][0]), (255, 0, 0), 3)
-        cv2.line(frame, (box[i][3], box[i][1]), (box[i][2], box[i][1]), (255, 0, 0), 3)
-        cv2.line(frame, (box[i][3], box[i][1]), (box[i][3], box[i][0]), (255, 0, 0), 3)
-        cv2.line(frame, (box[i][2], box[i][1]), (box[i][2], box[i][0]), (255, 0, 0), 3)
+        if box[i][4] == objTag:
+            cv2.line(frame, (box[i][3], box[i][0]), (box[i][2], box[i][0]), (0, 255, 255), 3)
+            cv2.line(frame, (box[i][3], box[i][1]), (box[i][2], box[i][1]), (0, 255, 255), 3)
+            cv2.line(frame, (box[i][3], box[i][1]), (box[i][3], box[i][0]), (0, 255, 255), 3)
+            cv2.line(frame, (box[i][2], box[i][1]), (box[i][2], box[i][0]), (0, 255, 255), 3)
+        else:
+            cv2.line(frame, (box[i][3], box[i][0]), (box[i][2], box[i][0]), (255, 0, 0), 3)
+            cv2.line(frame, (box[i][3], box[i][1]), (box[i][2], box[i][1]), (255, 0, 0), 3)
+            cv2.line(frame, (box[i][3], box[i][1]), (box[i][3], box[i][0]), (255, 0, 0), 3)
+            cv2.line(frame, (box[i][2], box[i][1]), (box[i][2], box[i][0]), (255, 0, 0), 3)
 
 def coordinates(event,x,y,flags,param):
     global drawing, cArray, fNo
