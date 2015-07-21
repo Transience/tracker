@@ -17,10 +17,11 @@ fNo = 0   # stores the frame number
 tArray = []   # stores old trajectory positions
 objTag = None   # stores selected object's id
 edit = False   # turns on edit mode if true
+dEdit = False   # flag for editing database
 
 def findObject(frameNum, x=None, y=None):
-    box = []
     global objects, features, objTag
+    box = []
     for obj in objects:
         if obj.existsAtInstant(frameNum):
             objFeatures = [features[i] for i in obj.featureNumbers]
@@ -37,6 +38,10 @@ def findObject(frameNum, x=None, y=None):
             ymax = max(v)
             if x is None and y is None:
                 box.append([ymax, ymin, xmax, xmin, obj.getNum()])
+            else:
+                objTag = None
+            if obj.getNum() == objTag and obj.getLastInstant() == frameNum:
+                objTag = None
             if xmax > x > xmin and ymax > y > ymin:
                 print "object detected: " + format(obj.getNum())
                 print "object position: " + format(obj.getPositionAtInstant(frameNum).project(homography))
@@ -60,35 +65,30 @@ def drawBox(frame, frameNum):
     box = findObject(frameNum)
     for i in range(len(box)):
         if box[i][4] == objTag:
-            cv2.line(frame, (box[i][3], box[i][0]), (box[i][2], box[i][0]), (0, 255, 255), 3)
-            cv2.line(frame, (box[i][3], box[i][1]), (box[i][2], box[i][1]), (0, 255, 255), 3)
-            cv2.line(frame, (box[i][3], box[i][1]), (box[i][3], box[i][0]), (0, 255, 255), 3)
-            cv2.line(frame, (box[i][2], box[i][1]), (box[i][2], box[i][0]), (0, 255, 255), 3)
+            cv2.rectangle(frame, (box[i][3], box[i][0]), (box[i][2], box[i][1]), (0, 255, 255), 3)
         else:
-            cv2.line(frame, (box[i][3], box[i][0]), (box[i][2], box[i][0]), (255, 0, 0), 3)
-            cv2.line(frame, (box[i][3], box[i][1]), (box[i][2], box[i][1]), (255, 0, 0), 3)
-            cv2.line(frame, (box[i][3], box[i][1]), (box[i][3], box[i][0]), (255, 0, 0), 3)
-            cv2.line(frame, (box[i][2], box[i][1]), (box[i][2], box[i][0]), (255, 0, 0), 3)
+            cv2.rectangle(frame, (box[i][3], box[i][0]), (box[i][2], box[i][1]), (255, 0, 0), 3)
 
 def drawEditBox(frame):
     global width, height, edit
     if edit == True:
-        cv2.line(frame, (0, 0), (width, 0), (0, 255, 255), 3)
-        cv2.line(frame, (0, 0), (0, height), (0, 255, 255), 3)
-        cv2.line(frame, (width, height), (width, 0), (0, 255, 255), 3)
-        cv2.line(frame, (width, height), (0, height), (0, 255, 255), 3)
+        cv2.rectangle(frame, (0, 0), (width, height), (0, 255, 255), 3)
+        cv2.putText(frame,"edit mode", (width-100, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255))
+    else:
+        cv2.putText(frame,"toggle edit (e)", (width-125, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255))
 
 def coordinates(event, x, y, flags, param):
     global drawing, cArray, fNo
     if event == cv2.EVENT_LBUTTONDOWN:
-        drawing = True
         print x, y
+        drawing = True
         cArray.append([x, y])
         findObject(fNo, x, y)
     elif event == cv2.EVENT_MOUSEMOVE:
         if drawing == True:
-            print x, y
             cArray.append([x, y])
+            if objTag is not None and edit == True:
+                print "editing object: " + format(objTag) + " (" + format(x) + " ," + format(y) + ")"
     elif event == cv2.EVENT_LBUTTONUP:
         drawing = False
         del cArray[:]
