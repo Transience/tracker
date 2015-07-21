@@ -1,6 +1,5 @@
 __author__ = 'Akhil'
 
-
 import cv2
 import storage
 from numpy.linalg.linalg import inv
@@ -16,11 +15,12 @@ drawing = False   # true if mouse is pressed
 cArray = []   # stores new trajectory positions (temporary)
 fNo = 0   # stores the frame number
 tArray = []   # stores old trajectory positions
-objTag = None
+objTag = None   # stores selected object's id
+edit = False   # turns on edit mode if true
 
 def findObject(frameNum, x=None, y=None):
     box = []
-    global width, height, objects, features, objTag
+    global objects, features, objTag
     for obj in objects:
         if obj.existsAtInstant(frameNum):
             objFeatures = [features[i] for i in obj.featureNumbers]
@@ -35,7 +35,7 @@ def findObject(frameNum, x=None, y=None):
             xmax = max(u)
             ymin = min(v)
             ymax = max(v)
-            if x == None and y == None:
+            if x is None and y is None:
                 box.append([ymax, ymin, xmax, xmin, obj.getNum()])
             if xmax > x > xmin and ymax > y > ymin:
                 print "object detected: " + format(obj.getNum())
@@ -70,7 +70,15 @@ def drawBox(frame, frameNum):
             cv2.line(frame, (box[i][3], box[i][1]), (box[i][3], box[i][0]), (255, 0, 0), 3)
             cv2.line(frame, (box[i][2], box[i][1]), (box[i][2], box[i][0]), (255, 0, 0), 3)
 
-def coordinates(event,x,y,flags,param):
+def drawEditBox(frame):
+    global width, height, edit
+    if edit == True:
+        cv2.line(frame, (0, 0), (width, 0), (0, 255, 255), 3)
+        cv2.line(frame, (0, 0), (0, height), (0, 255, 255), 3)
+        cv2.line(frame, (width, height), (width, 0), (0, 255, 255), 3)
+        cv2.line(frame, (width, height), (0, height), (0, 255, 255), 3)
+
+def coordinates(event, x, y, flags, param):
     global drawing, cArray, fNo
     if event == cv2.EVENT_LBUTTONDOWN:
         drawing = True
@@ -88,19 +96,23 @@ def coordinates(event,x,y,flags,param):
 cap = cv2.VideoCapture('laurier.avi')
 cv2.namedWindow('Video')
 cv2.setMouseCallback('Video', coordinates)
-width = cap.get(3)
-height = cap.get(4)
+width = int(cap.get(3))
+height = int(cap.get(4))
 
 while(cap.isOpened()):
     ret, frame = cap.read()
     drawBox(frame, fNo)
     drawTrajectory(frame, fNo)
+    drawEditBox(frame)
+    k = cv2.waitKey(33) & 0xFF
+    if k == 27:
+        break
+    if k == 101:
+        edit = edit != True
     for i in range(len(cArray)):
         cv2.circle(frame, (cArray[i][0], cArray[i][1]), 3, (0, 255, 0), -1)
     cv2.imshow('Video', frame)
     fNo += 1
-    if cv2.waitKey(25) & 0xFF == 27:
-        break
 
 cap.release()
 cv2.destroyAllWindows()
