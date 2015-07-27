@@ -3,6 +3,7 @@ __author__ = 'Akhil'
 import cv2
 import storage
 import sqlite3
+import cvutils
 from numpy.linalg.linalg import inv
 from numpy import loadtxt
 
@@ -16,9 +17,9 @@ features = storage.loadTrajectoriesFromSqlite(databaseFilename, "feature")
 drawing = False   # true if mouse is pressed
 cArray = []   # stores new trajectory positions (temporary)
 fNo = 0   # stores the frame number
-tArray = []   # stores old trajectory positions
 objTag = None   # stores selected object's id
 edit = False   # turns on edit mode if true
+trace = []   # holds the trace coordinates
 
 def findObject(frameNum, x=None, y=None):
     global objects, features, objTag
@@ -50,7 +51,7 @@ def findObject(frameNum, x=None, y=None):
     return box
 
 def drawTrajectory(frame, frameNum):
-    global objects, tArray
+    global objects, editedObjects
     for obj in objects:
         if obj.existsAtInstant(frameNum):
             prevPosition = obj.getPositionAtInstant(obj.getFirstInstant()).project(homography)
@@ -79,7 +80,7 @@ def drawEditBox(frame):
         cv2.putText(frame,"toggle edit (e)", (width-125, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255))
 
 def coordinates(event, x, y, flags, param):
-    global drawing, cArray, fNo, objTag
+    global drawing, cArray, fNo, objTag, trace
     if event == cv2.EVENT_LBUTTONDOWN:
         print x, y
         drawing = True
@@ -89,14 +90,15 @@ def coordinates(event, x, y, flags, param):
         if drawing == True:
             cArray.append([x, y])
             if objTag is not None and edit == True:
+                trace.append([objTag, fNo, x, y])
                 print "editing object: " + format(objTag) + " (" + format(x) + " ," + format(y) + ")"
     elif event == cv2.EVENT_LBUTTONUP:
         drawing = False
         if objTag is not None and edit == True:
-            tracing()
+            addFeatures()
         del cArray[:]
 
-def tracing():
+def addFeatures():
     global objTag
     try:
         connection = sqlite3.connect(databaseFilename)
@@ -106,12 +108,27 @@ def tracing():
         cursor.execute("SELECT * from objects where object_id = " + format(objTag) + ";")
         objData = cursor.fetchone()
         newCursor.execute("insert or replace into objects (object_id, road_user_type, n_objects) values (?, ?, ?);", objData)
+        newCursor.execute("insert or replace into objects_features (object_id, trajectory_id) values (?, ?);", (objTag, objTag))
         newConnection.commit()
         connection.close()
         newConnection.close()
     except sqlite3.Error, e:
         print "Error %s:" % e.args[0]
 
+def tracing():
+    global trace
+    try:
+        connection = sqlite3.connect(newFilename)
+        cursor = connection.cursor()
+        for record in trace:
+            point = [record[2], record[3]]
+            invH = cvutils.invertHomography(homography)
+            coords = cvutils.project(invH, point)
+            cursor.execute("insert or replace into positions (trajectory_id, frame_number, x_coordinate, y_coordinate) values (?, ?, ?, ?);", (record[0], record[1], coords[0][0], coords[1][0]))
+        connection.commit()
+        connection.close()
+    except sqlite3.Error, e:
+        print "Error %s:" % e.args[0]
 
 def createDatabase():
     try:
@@ -124,7 +141,6 @@ def createDatabase():
         connection.close()
     except sqlite3.Error, e:
         print "Error %s:" % e.args[0]
-
 
 cap = cv2.VideoCapture('laurier.avi')
 cv2.namedWindow('Video')
