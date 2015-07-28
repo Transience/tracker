@@ -20,6 +20,7 @@ fNo = 0   # stores the frame number
 objTag = None   # stores selected object's id
 edit = False   # turns on edit mode if true
 trace = []   # holds the trace coordinates
+cPositions = None   # holds modified positions
 
 def findObject(frameNum, x=None, y=None):
     global objects, features, objTag
@@ -50,17 +51,36 @@ def findObject(frameNum, x=None, y=None):
                 objTag = obj.getNum()
     return box
 
+def correctedData():
+    global cObjects, cPositions
+    try:
+        connection = sqlite3.connect(newFilename)
+        cursor = connection.cursor()
+        cursor.execute("SELECT * from positions;")
+        cPositions = cursor.fetchall()
+        connection.close()
+    except sqlite3.Error, e:
+        print "Error %s:" % e.args[0]
+
 def drawTrajectory(frame, frameNum):
-    global objects, editedObjects
+    global objects, cPositions
     for obj in objects:
         if obj.existsAtInstant(frameNum):
             prevPosition = obj.getPositionAtInstant(obj.getFirstInstant()).project(homography)
-            for pos in obj.getPositions():
-                position = pos.project(homography)
-                cv2.line(frame, (position[0], position[1]), (prevPosition[0], prevPosition[1]), (0, 0, 255), 2)
+            for f in range(obj.getFirstInstant(), frameNum):
+                position = obj.getPositionAtInstant(f).project(homography)
+                flag = False
+                if cPositions is not None:
+                    for row in cPositions:
+                        if row[0] == obj.getNum() and row[1] == f:
+                            flag = True
+                            pos = [row[2], row[3]]
+                            position = cvutils.project(homography, pos)
+                if flag == True:
+                    cv2.line(frame, (position[0], position[1]), (prevPosition[0], prevPosition[1]), (0, 255, 255), 2)
+                else:
+                    cv2.line(frame, (position[0], position[1]), (prevPosition[0], prevPosition[1]), (0, 0, 255), 2)
                 prevPosition = position
-                if pos[0] == obj.getPositionAtInstant(frameNum)[0] and pos[1] == obj.getPositionAtInstant(frameNum)[1]:
-                    break
 
 def drawBox(frame, frameNum):
     global objTag
@@ -147,13 +167,14 @@ cv2.namedWindow('Video')
 cv2.setMouseCallback('Video', coordinates)
 width = int(cap.get(3))
 height = int(cap.get(4))
+correctedData()
 
 while(cap.isOpened()):
     ret, frame = cap.read()
     drawBox(frame, fNo)
     drawTrajectory(frame, fNo)
     drawEditBox(frame)
-    k = cv2.waitKey(33) & 0xFF
+    k = cv2.waitKey(50) & 0xFF
     if k == 27:
         tracing()
         break
