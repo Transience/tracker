@@ -134,7 +134,15 @@ def sqlEdit(objID, frames, coords):   # performs delete and insert operations on
         cursor.execute(sql, frames)
         tID = cursor.fetchone()[0]   # tID will be the trajectory id of the new feature
         cursor.execute(sql2, frames)
+        f = frames[0]
         for i in range(len(frames)):
+            jump = frames[i] - f
+            if jump > 1:
+                c = [(coords[i][0] + coords[i-1][0])/2, (coords[i][1] + coords[i-1][1])/2]
+                for k in range(f+1, frames[i]):
+                    cursor.execute("delete from positions where trajectory_id in (select trajectory_id from objects_features where object_id = " + format(objID) + ") and frame_number = " + format(k) + ";")
+                    cursor.execute("insert into positions (trajectory_id, frame_number, x_coordinate, y_coordinate) values (?, ?, ?, ?);", (tID, k, c[0], c[1]))
+            f = frames[i]
             cursor.execute("insert into positions (trajectory_id, frame_number, x_coordinate, y_coordinate) values (?, ?, ?, ?);", (tID, frames[i], coords[i][0], coords[i][1]))
         connection.commit()
         connection.close()
@@ -143,7 +151,6 @@ def sqlEdit(objID, frames, coords):   # performs delete and insert operations on
 
 def tracing():   # extract data from the trace array, removing redundant data for a single frame
     global trace
-    print trace[0][1], trace[len(trace)-1][1]
     frames = []
     coords = []
     tempF = None
@@ -181,6 +188,7 @@ def coordinates(event, x, y, flags, param):
                 trace.append([objTag, fNo, x, y])
                 print "editing object: " + format(objTag) + " (" + format(x) + " ," + format(y) + ")"
     elif event == cv2.EVENT_LBUTTONUP:
+        objTag = None
         drawing = False
         del cArray[:]
     if event == cv2.EVENT_RBUTTONDOWN:   # deselect a selected object
@@ -201,7 +209,7 @@ while(cap.isOpened()):
         cv2.circle(frame, (cArray[i][0], cArray[i][1]), 3, (0, 255, 0), -1)
     cv2.imshow('Video', frame)
     fNo += 1
-    k = cv2.waitKey(100) & 0xFF
+    k = cv2.waitKey(50) & 0xFF
     if k == 27:   # exit with committing the trace
         if trace:
             tracing()
