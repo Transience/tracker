@@ -23,10 +23,12 @@ cArray = []   # stores new trajectory positions (temporary) inorder to display t
 fNo = 0   # stores the frame number
 objTag = None   # stores selected object's id
 edit = False   # turns on edit mode if true
+merge = False   # turns on merge mode if true
+mergeList = []   # holds the id of objects to be merged
 trace = []   # holds the trace coordinates
 
 def findObject(frameNum, x=None, y=None):   # finds the object clicked on
-    global objects, features, objTag
+    global objects, features, objTag, merge, mergeList
     box = []
     for obj in objects:
         if obj.existsAtInstant(frameNum):
@@ -44,13 +46,13 @@ def findObject(frameNum, x=None, y=None):   # finds the object clicked on
             ymax = max(v)
             if x is None and y is None:   # utilized when the function call is from drawBox()
                 box.append([ymax, ymin, xmax, xmin, obj.getNum()])
-            if obj.getNum() == objTag and obj.getLastInstant() == frameNum:   # deselect the object when out of range
-                objTag = None
             if xmax > x > xmin and ymax > y > ymin:
                 print "object detected: " + format(obj.getNum())
                 print "object position: " + format(obj.getPositionAtInstant(frameNum).project(homography))
                 objTag = obj.getNum()
-    return box
+                if merge is True:
+                    mergeList.append(obj.getNum())
+    return box   # returns pixel range for each object
 
 def drawTrajectory(frame, frameNum):   # draws trajectory for each object (utilizes original sqlite)
     global cObjects
@@ -73,13 +75,52 @@ def drawBox(frame, frameNum):   # annotates each object and highlights when clic
 
 def drawEditBox(frame):   # for the static text
     global width, height, edit
-    if edit == True:
+    if edit is True:
         cv2.rectangle(frame, (0, 0), (width, height), (0, 255, 255), 3)
         cv2.putText(frame,"edit mode", (width-100, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255))
     else:
         cv2.putText(frame,"toggle edit (e)", (width-125, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255))
+    if merge is True:
+        cv2.rectangle(frame, (0, 0), (width, height), (255, 255, 0), 3)
+        cv2.putText(frame,"merge mode", (width-125, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255))
+    else:
+        cv2.putText(frame,"toggle merge (m)", (width-150, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255))
     cv2.putText(frame,"reset edits (r)", (width-125, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255))
     cv2.putText(frame,"deselect(rClick)", (width-125, 75), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255))
+
+def sqlMerge():
+    global mergeList, cObjects
+    frameRange = []
+    if len(mergeList)>1:
+        try:
+            connection = sqlite3.connect(newFilename)
+            cursor = connection.cursor()
+            for i in range(1, len(mergeList)):
+                for obj in cObjects:
+                    if obj.getNum() == mergeList[i]:
+                        cursor.execute("delete from objects where object_id = " + format(mergeList[i]) + ";")
+                        cursor.execute("update objects_features set object_id = " + format(mergeList[0]) + " where object_id = " + format(mergeList[i]) + ";")
+            for i in range(len(mergeList)):
+                for obj in cObjects:
+                    if obj.getNum() == mergeList[i]:
+                        frameRange.append([obj.getFirstInstant(), obj.getLastInstant(), obj.getNum()])
+            frameRange = sorted(frameRange)
+            for i in range(len(frameRange)-1):
+                if frameRange[i][1]<frameRange[i+1][0]:
+                    for obj in cObjects:
+                        if obj.getNum() == frameRange[i][2]:
+                            position = obj.getPositionAtInstant(frameRange[i][1])
+                            cursor.execute("SELECT max(trajectory_id) from positions where trajectory_id in (select trajectory_id from objects_features where object_id = "
+                                           + format(mergeList[0]) + ") and frame_number = " + format(frameRange[i][1]) + ";")
+                            tID = cursor.fetchone()[0]
+                            for f in range(frameRange[i][1]+1, frameRange[i+1][0]):
+                                cursor.execute("insert into positions (trajectory_id, frame_number, x_coordinate, y_coordinate) values (?, ?, ?, ?);", (tID, f, position[0], position[1]))
+            connection.commit()
+            connection.close()
+            del mergeList[:]
+        except sqlite3.Error, e:
+            print "Error %s:" % e.args[0]
+
 
 def sqlEdit(objID, frames, coords):   # performs delete and insert operations on the sqlite (new file)
     try:
@@ -130,13 +171,13 @@ def coordinates(event, x, y, flags, param):
         drawing = True
         cArray.append([x, y])
         findObject(fNo, x, y)
-        if objTag is not None and edit == True:   # tracing commences
+        if objTag is not None and edit == True:
                 trace.append([objTag, fNo, x, y])
                 print "editing object: " + format(objTag) + " (" + format(x) + " ," + format(y) + ")"
     elif event == cv2.EVENT_MOUSEMOVE:
         if drawing == True:
             cArray.append([x, y])
-            if objTag is not None and edit == True:   # tracing continues
+            if objTag is not None and edit == True:
                 trace.append([objTag, fNo, x, y])
                 print "editing object: " + format(objTag) + " (" + format(x) + " ," + format(y) + ")"
     elif event == cv2.EVENT_LBUTTONUP:
@@ -160,13 +201,21 @@ while(cap.isOpened()):
         cv2.circle(frame, (cArray[i][0], cArray[i][1]), 3, (0, 255, 0), -1)
     cv2.imshow('Video', frame)
     fNo += 1
-    k = cv2.waitKey(0) & 0xFF
+    k = cv2.waitKey(100) & 0xFF
     if k == 27:   # exit with committing the trace
         if trace:
             tracing()
         break
     elif k == 101:   # toggle edit mode
         edit = edit != True
+        if merge is True:
+            merge = False
+    elif k == 109:   # toggle merge mode
+        merge = merge != True
+        if merge is False:
+            sqlMerge()
+        if edit is True:
+            edit = False
     elif k == 114:   # creates a copy of the original sqlite
         shutil.copy2(databaseFilename, newFilename)
 
