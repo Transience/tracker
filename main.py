@@ -82,15 +82,14 @@ def drawEditBox(frame):   # for the static text
         cv2.putText(frame,"toggle edit (e)", (width-125, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255))
     if merge is True:
         cv2.rectangle(frame, (0, 0), (width, height), (255, 255, 0), 3)
-        cv2.putText(frame,"merge mode", (width-125, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255))
+        cv2.putText(frame,"merge mode", (width-125, 75), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255))
     else:
-        cv2.putText(frame,"toggle merge (m)", (width-150, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255))
+        cv2.putText(frame,"toggle merge (m)", (width-150, 75), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255))
     cv2.putText(frame,"reset edits (r)", (width-125, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255))
-    cv2.putText(frame,"deselect(rClick)", (width-125, 75), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255))
 
 def sqlMerge():
     global mergeList, cObjects
-    frameRange = []
+    frameRange = []   # to store the first instant and last instant of the objects to be merged
     if len(mergeList)>1:
         try:
             connection = sqlite3.connect(newFilename)
@@ -106,7 +105,7 @@ def sqlMerge():
                         frameRange.append([obj.getFirstInstant(), obj.getLastInstant(), obj.getNum()])
             frameRange = sorted(frameRange)
             for i in range(len(frameRange)-1):
-                if frameRange[i][1]<frameRange[i+1][0]:
+                if frameRange[i][1] < frameRange[i+1][0]:   # looks for discontinuity
                     for obj in cObjects:
                         if obj.getNum() == frameRange[i][2]:
                             position = obj.getPositionAtInstant(frameRange[i][1])
@@ -137,7 +136,7 @@ def sqlEdit(objID, frames, coords):   # performs delete and insert operations on
         f = frames[0]
         for i in range(len(frames)):
             jump = frames[i] - f
-            if jump > 1:
+            if 10 > jump > 1:
                 c = [(coords[i][0] + coords[i-1][0])/2, (coords[i][1] + coords[i-1][1])/2]
                 for k in range(f+1, frames[i]):
                     cursor.execute("delete from positions where trajectory_id in (select trajectory_id from objects_features where object_id = " + format(objID) + ") and frame_number = " + format(k) + ";")
@@ -188,11 +187,9 @@ def coordinates(event, x, y, flags, param):
                 trace.append([objTag, fNo, x, y])
                 print "editing object: " + format(objTag) + " (" + format(x) + " ," + format(y) + ")"
     elif event == cv2.EVENT_LBUTTONUP:
-        objTag = None
+        objTag = None   # deselects the object
         drawing = False
         del cArray[:]
-    if event == cv2.EVENT_RBUTTONDOWN:   # deselect a selected object
-        objTag = None
 
 cap = cv2.VideoCapture(videoFilename)
 cv2.namedWindow('Video')
@@ -209,7 +206,7 @@ while(cap.isOpened()):
         cv2.circle(frame, (cArray[i][0], cArray[i][1]), 3, (0, 255, 0), -1)
     cv2.imshow('Video', frame)
     fNo += 1
-    k = cv2.waitKey(50) & 0xFF
+    k = cv2.waitKey(50) & 0xFF   # set cv2.waitKey(0) for frame by frame editing
     if k == 27:   # exit with committing the trace
         if trace:
             tracing()
