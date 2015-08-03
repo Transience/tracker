@@ -24,10 +24,12 @@ fNo = 0   # stores the frame number
 objTag = None   # stores selected object's id
 edit = False   # turns on edit mode if true
 merge = False   # turns on merge mode if true
+split = False   # turns on split mode if true
 mergeList = []   # holds the id of objects to be merged
 trace = []   # holds the trace coordinates
+splitSelect = []   # holds trajectory ids selected for splitting
 
-def findObject(frameNum, x=None, y=None):   # finds the object clicked on
+def findObject(frameNum, x=None, y=None):   # finds the object clicked on (utilizes original sqlite)
     global objects, features, objTag, merge, mergeList
     box = []
     for obj in objects:
@@ -54,38 +56,98 @@ def findObject(frameNum, x=None, y=None):   # finds the object clicked on
                     mergeList.append(obj.getNum())
     return box   # returns pixel range for each object
 
-def drawTrajectory(frame, frameNum):   # draws trajectory for each object (utilizes original sqlite)
-    global cObjects
+def findTrajectory(frameNum):
+    global cObjects, features, cArray, splitSelect
     for obj in cObjects:
         if obj.existsAtInstant(frameNum):
-            prevPosition = obj.getPositionAtInstant(obj.getFirstInstant()).project(homography)
-            for f in range(obj.getFirstInstant(), frameNum):
-                position = obj.getPositionAtInstant(f).project(homography)
-                cv2.line(frame, (position[0], position[1]), (prevPosition[0], prevPosition[1]), (0, 0, 255), 2)
-                prevPosition = position
+            cObjFeatures = [features[i] for i in obj.featureNumbers]
+            for cObjFeature in cObjFeatures:
+                if cObjFeature.existsAtInstant(frameNum):
+                    for f in range(cObjFeature.getFirstInstant(), frameNum):
+                        position = cObjFeature.getPositionAtInstant(f).project(homography)
+                        for coord in cArray:
+                            if coord[0]+5 > position[0] > coord[0]-5 and coord[1]+5 > position[1] > coord[1]-5:
+                                if not cObjFeature.getNum() in splitSelect:
+                                    splitSelect.append(cObjFeature.getNum())
+
+def drawTrajectory(frame, frameNum):   # draws trajectory for each object
+    global cObjects, features, splitSelect
+    if split is False:
+        for obj in cObjects:
+            if obj.existsAtInstant(frameNum):
+                prevPosition = obj.getPositionAtInstant(obj.getFirstInstant()).project(homography)
+                for f in range(obj.getFirstInstant(), frameNum):
+                    position = obj.getPositionAtInstant(f).project(homography)
+                    cv2.line(frame, (position[0], position[1]), (prevPosition[0], prevPosition[1]), (0, 0, 255), 2)
+                    prevPosition = position
+    else:
+        for obj in cObjects:
+            if obj.existsAtInstant(frameNum):
+                cObjFeatures = [features[i] for i in obj.featureNumbers]
+                for cObjFeature in cObjFeatures:
+                    if cObjFeature.existsAtInstant(frameNum):
+                        if cObjFeature.getNum() in splitSelect:
+                            prevPosition = cObjFeature.getPositionAtInstant(cObjFeature.getFirstInstant()).project(homography)
+                            for f in range(cObjFeature.getFirstInstant(), frameNum):
+                                position = cObjFeature.getPositionAtInstant(f).project(homography)
+                                cv2.line(frame, (position[0], position[1]), (prevPosition[0], prevPosition[1]), (0, 255, 255), 1)
+                                prevPosition = position
+                        else:
+                            prevPosition = cObjFeature.getPositionAtInstant(cObjFeature.getFirstInstant()).project(homography)
+                            for f in range(cObjFeature.getFirstInstant(), frameNum):
+                                position = cObjFeature.getPositionAtInstant(f).project(homography)
+                                cv2.line(frame, (position[0], position[1]), (prevPosition[0], prevPosition[1]), (0, 0, 255), 1)
+                                prevPosition = position
+
 
 def drawBox(frame, frameNum):   # annotates each object and highlights when clicked
     global objTag
-    box = findObject(frameNum)
-    for i in range(len(box)):
-        if box[i][4] == objTag:
-            cv2.rectangle(frame, (box[i][3], box[i][0]), (box[i][2], box[i][1]), (0, 255, 255), 3)
-        else:
-            cv2.rectangle(frame, (box[i][3], box[i][0]), (box[i][2], box[i][1]), (255, 0, 0), 3)
+    if split is False:
+        box = findObject(frameNum)
+        for i in range(len(box)):
+            if box[i][4] == objTag:
+                cv2.rectangle(frame, (box[i][3], box[i][0]), (box[i][2], box[i][1]), (0, 255, 255), 3)
+            else:
+                cv2.rectangle(frame, (box[i][3], box[i][0]), (box[i][2], box[i][1]), (255, 0, 0), 3)
 
 def drawEditBox(frame):   # for the static text
-    global width, height, edit
+    global width, height
     if edit is True:
         cv2.rectangle(frame, (0, 0), (width, height), (0, 255, 255), 3)
         cv2.putText(frame,"edit mode", (width-100, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255))
     else:
         cv2.putText(frame,"toggle edit (e)", (width-125, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255))
     if merge is True:
-        cv2.rectangle(frame, (0, 0), (width, height), (255, 255, 0), 3)
-        cv2.putText(frame,"merge mode", (width-125, 75), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255))
+        cv2.rectangle(frame, (0, 0), (width, height), (0, 255, 0), 3)
+        cv2.putText(frame,"merge mode", (width-125, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255))
     else:
-        cv2.putText(frame,"toggle merge (m)", (width-150, 75), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255))
-    cv2.putText(frame,"reset edits (r)", (width-125, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255))
+        cv2.putText(frame,"toggle merge (m)", (width-150, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255))
+    if split is True:
+        cv2.rectangle(frame, (0, 0), (width, height), (255, 0, 0), 3)
+        cv2.putText(frame,"split mode", (width-125, 75), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255))
+    else:
+        cv2.putText(frame,"toggle split (s)", (width-125, 75), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255))
+    cv2.putText(frame,"reset edits (r)", (width-125, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255))
+
+def sqlSplit():
+    global splitSelect, cObjects
+    if splitSelect:
+        try:
+            connection = sqlite3.connect(newFilename)
+            cursor = connection.cursor()
+            cursor.execute("SELECT object_id from objects_features where trajectory_id = " + format(splitSelect[0]) + ";")
+            objID = cursor.fetchone()[0]
+            cursor.execute("SELECT * from objects where object_id = " + format(objID) + ";")
+            data = cursor.fetchone()
+            cursor.execute("insert into objects (object_id, road_user_type, n_objects) values (?, ?, ?);", (len(cObjects), data[1], data[2]))
+            sql = "update objects_features set object_id = " + format(len(cObjects)) + " where object_id = " + format(objID) + " and trajectory_id in (?"
+            extension = ''.join(itertools.repeat(', ?', len(splitSelect)-1))
+            sql = sql + extension + ");"
+            cursor.execute(sql, splitSelect)
+            connection.commit()
+            connection.close()
+        except sqlite3.Error, e:
+                print "Error %s:" % e.args[0]
 
 def sqlMerge():
     global mergeList, cObjects
@@ -180,6 +242,8 @@ def coordinates(event, x, y, flags, param):
         if objTag is not None and edit == True:
                 trace.append([objTag, fNo, x, y])
                 print "editing object: " + format(objTag) + " (" + format(x) + " ," + format(y) + ")"
+        if split is True:
+            findTrajectory(fNo)
     elif event == cv2.EVENT_MOUSEMOVE:
         if drawing == True:
             cArray.append([x, y])
@@ -202,8 +266,10 @@ while(cap.isOpened()):
     drawBox(frame, fNo)
     drawTrajectory(frame, fNo)
     drawEditBox(frame)
-    for i in range(len(cArray)):   # displays the user drawn trajectory
-        cv2.circle(frame, (cArray[i][0], cArray[i][1]), 3, (0, 255, 0), -1)
+    if split is True:
+        findTrajectory(fNo)
+    for i in range(len(cArray)-1):   # displays the user drawn trajectory
+        cv2.line(frame, (cArray[i][0], cArray[i][1]), (cArray[i+1][0], cArray[i+1][1]), (0, 255, 0), 2)
     cv2.imshow('Video', frame)
     fNo += 1
     k = cv2.waitKey(50) & 0xFF   # set cv2.waitKey(0) for frame by frame editing
@@ -213,14 +279,20 @@ while(cap.isOpened()):
         break
     elif k == 101:   # toggle edit mode
         edit = edit != True
-        if merge is True:
-            merge = False
+        merge = False
+        split = False
+    elif k == 115:   # toggle split mode
+        split = split != True
+        if split is False:   # calling sqlSplit() while coming out of merge mode
+            sqlSplit()
+        edit = False
+        merge = False
     elif k == 109:   # toggle merge mode
         merge = merge != True
-        if merge is False:
+        if merge is False:   # calling sqlMerge() while coming out of merge mode
             sqlMerge()
-        if edit is True:
-            edit = False
+        split = False
+        edit = False
     elif k == 114:   # creates a copy of the original sqlite
         shutil.copy2(databaseFilename, newFilename)
 
