@@ -19,15 +19,16 @@ objects = storage.loadTrajectoriesFromSqlite(databaseFilename, "object")
 features = storage.loadTrajectoriesFromSqlite(databaseFilename, "feature")
 
 drawing = False   # true if mouse is pressed
-cArray = []   # stores new trajectory positions (temporary) inorder to display the trace
+cArray = []   # stores new trajectory positions (temporary) in order to display the trace
 fNo = 0   # stores the frame number
 objTag = None   # stores selected object's id
-edit = False   # turns on edit mode if true
+track = False   # turns on track mode if true
 merge = False   # turns on merge mode if true
 split = False   # turns on split mode if true
 mergeList = []   # holds the id of objects to be merged
 trace = []   # holds the trace coordinates
 splitSelect = []   # holds trajectory ids selected for splitting
+pace = 0   # to adjust the video speed
 
 def findObject(frameNum, x=None, y=None):   # finds the object clicked on (utilizes original sqlite)
     global objects, features, objTag, merge, mergeList
@@ -112,11 +113,11 @@ def drawBox(frame, frameNum):   # annotates each object and highlights when clic
 
 def drawEditBox(frame):   # for the static text
     global width, height
-    if edit is True:
+    if track is True:
         cv2.rectangle(frame, (0, 0), (width, height), (0, 255, 255), 3)
-        cv2.putText(frame,"edit mode", (width-100, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255))
+        cv2.putText(frame,"track mode", (width-100, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255))
     else:
-        cv2.putText(frame,"toggle edit (e)", (width-125, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255))
+        cv2.putText(frame,"toggle track (t)", (width-130, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255))
     if merge is True:
         cv2.rectangle(frame, (0, 0), (width, height), (0, 255, 0), 3)
         cv2.putText(frame,"merge mode", (width-125, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255))
@@ -128,6 +129,7 @@ def drawEditBox(frame):   # for the static text
     else:
         cv2.putText(frame,"toggle split (s)", (width-125, 75), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255))
     cv2.putText(frame,"reset edits (r)", (width-125, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255))
+    cv2.putText(frame,"video speed (0-4)", (width-150, 125), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255))
 
 def sqlSplit():
     global splitSelect, cObjects
@@ -183,7 +185,7 @@ def sqlMerge():
             print "Error %s:" % e.args[0]
 
 
-def sqlEdit(objID, frames, coords):   # performs delete and insert operations on the sqlite (new file)
+def sqlTrack(objID, frames, coords):   # performs delete and insert operations on the sqlite (new file)
     try:
         connection = sqlite3.connect(newFilename)
         cursor = connection.cursor()
@@ -198,7 +200,7 @@ def sqlEdit(objID, frames, coords):   # performs delete and insert operations on
         f = frames[0]
         for i in range(len(frames)):
             jump = frames[i] - f
-            if 10 > jump > 1:
+            if 5 > jump > 1:
                 c = [(coords[i][0] + coords[i-1][0])/2, (coords[i][1] + coords[i-1][1])/2]
                 for k in range(f+1, frames[i]):
                     cursor.execute("delete from positions where trajectory_id in (select trajectory_id from objects_features where object_id = " + format(objID) + ") and frame_number = " + format(k) + ";")
@@ -219,7 +221,7 @@ def tracing():   # extract data from the trace array, removing redundant data fo
     for record in trace:
         if not temp == record[0]:
             if not len(frames) == 0:
-                sqlEdit(temp, frames, coords)
+                sqlTrack(temp, frames, coords)
                 del frames[:]
                 del coords[:]
             temp = record[0]
@@ -230,7 +232,7 @@ def tracing():   # extract data from the trace array, removing redundant data fo
             invH = cvutils.invertHomography(homography)
             coord = cvutils.project(invH, point)
             coords.append([coord[0][0], coord[1][0]])
-    sqlEdit(temp, frames, coords)
+    sqlTrack(temp, frames, coords)
 
 def coordinates(event, x, y, flags, param):
     global drawing, cArray, fNo, objTag, trace
@@ -239,17 +241,17 @@ def coordinates(event, x, y, flags, param):
         drawing = True
         cArray.append([x, y])
         findObject(fNo, x, y)
-        if objTag is not None and edit == True:
+        if objTag is not None and track == True:
                 trace.append([objTag, fNo, x, y])
-                print "editing object: " + format(objTag) + " (" + format(x) + " ," + format(y) + ")"
+                print "tracing object: " + format(objTag) + " (" + format(x) + " ," + format(y) + ")"
         if split is True:
             findTrajectory(fNo)
     elif event == cv2.EVENT_MOUSEMOVE:
         if drawing == True:
             cArray.append([x, y])
-            if objTag is not None and edit == True:
+            if objTag is not None and track == True:
                 trace.append([objTag, fNo, x, y])
-                print "editing object: " + format(objTag) + " (" + format(x) + " ," + format(y) + ")"
+                print "tracing object: " + format(objTag) + " (" + format(x) + " ," + format(y) + ")"
     elif event == cv2.EVENT_LBUTTONUP:
         objTag = None   # deselects the object
         drawing = False
@@ -272,29 +274,39 @@ while(cap.isOpened()):
         cv2.line(frame, (cArray[i][0], cArray[i][1]), (cArray[i+1][0], cArray[i+1][1]), (0, 255, 0), 2)
     cv2.imshow('Video', frame)
     fNo += 1
-    k = cv2.waitKey(50) & 0xFF   # set cv2.waitKey(0) for frame by frame editing
+    k = cv2.waitKey(pace) & 0xFF   # set cv2.waitKey(0) for frame by frame editing
     if k == 27:   # exit with committing the trace
         if trace:
             tracing()
         break
-    elif k == 101:   # toggle edit mode
-        edit = edit != True
+    elif k == 116:   # toggle track mode
+        track = track != True
         merge = False
         split = False
     elif k == 115:   # toggle split mode
         split = split != True
         if split is False:   # calling sqlSplit() while coming out of merge mode
             sqlSplit()
-        edit = False
+        track = False
         merge = False
     elif k == 109:   # toggle merge mode
         merge = merge != True
         if merge is False:   # calling sqlMerge() while coming out of merge mode
             sqlMerge()
         split = False
-        edit = False
+        track = False
     elif k == 114:   # creates a copy of the original sqlite
         shutil.copy2(databaseFilename, newFilename)
+    elif k == 48:
+        pace = 0
+    elif k == 49:
+        pace = 150
+    elif k == 50:
+        pace = 100
+    elif k == 51:
+        pace = 50
+    elif k == 52:
+        pace = 25
 
 cap.release()
 cv2.destroyAllWindows()
