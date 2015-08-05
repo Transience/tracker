@@ -57,7 +57,7 @@ def findObject(frameNum, x=None, y=None):   # finds the object clicked on (utili
                     mergeList.append(obj.getNum())
     return box   # returns pixel range for each object
 
-def findTrajectory(frameNum):
+def findTrajectory(frameNum):   # finds the features selected by the user
     global cObjects, features, cArray, splitSelect
     for obj in cObjects:
         if obj.existsAtInstant(frameNum):
@@ -100,7 +100,6 @@ def drawTrajectory(frame, frameNum):   # draws trajectory for each object
                                 cv2.line(frame, (position[0], position[1]), (prevPosition[0], prevPosition[1]), (0, 0, 255), 1)
                                 prevPosition = position
 
-
 def drawBox(frame, frameNum):   # annotates each object and highlights when clicked
     global objTag
     if split is False:
@@ -131,27 +130,27 @@ def drawEditBox(frame):   # for the static text
     cv2.putText(frame,"reset edits (r)", (width-125, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255))
     cv2.putText(frame,"video speed (0-4)", (width-150, 125), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255))
 
-def sqlSplit():
+def sqlSplit(newObjID):   # splits an object into two 
     global splitSelect, cObjects
-    if splitSelect:
-        try:
-            connection = sqlite3.connect(newFilename)
-            cursor = connection.cursor()
-            cursor.execute("SELECT object_id from objects_features where trajectory_id = " + format(splitSelect[0]) + ";")
-            objID = cursor.fetchone()[0]
-            cursor.execute("SELECT * from objects where object_id = " + format(objID) + ";")
-            data = cursor.fetchone()
-            cursor.execute("insert into objects (object_id, road_user_type, n_objects) values (?, ?, ?);", (len(cObjects), data[1], data[2]))
-            sql = "update objects_features set object_id = " + format(len(cObjects)) + " where object_id = " + format(objID) + " and trajectory_id in (?"
-            extension = ''.join(itertools.repeat(', ?', len(splitSelect)-1))
-            sql = sql + extension + ");"
-            cursor.execute(sql, splitSelect)
-            connection.commit()
-            connection.close()
-        except sqlite3.Error, e:
-                print "Error %s:" % e.args[0]
+    try:
+        connection = sqlite3.connect(newFilename)
+        cursor = connection.cursor()
+        cursor.execute("SELECT object_id from objects_features where trajectory_id = " + format(splitSelect[0]) + ";")
+        objID = cursor.fetchone()[0]
+        cursor.execute("SELECT * from objects where object_id = " + format(objID) + ";")
+        data = cursor.fetchone()
+        cursor.execute("insert into objects (object_id, road_user_type, n_objects) values (?, ?, ?);", (len(cObjects), data[1], data[2]))
+        sql = "update objects_features set object_id = " + format(newObjID) + " where object_id = " + format(objID) + " and trajectory_id in (?"
+        extension = ''.join(itertools.repeat(', ?', len(splitSelect)-1))
+        sql = sql + extension + ");"
+        cursor.execute(sql, splitSelect)
+        del splitSelect[:]
+        connection.commit()
+        connection.close()
+    except sqlite3.Error, e:
+            print "Error %s:" % e.args[0]
 
-def sqlMerge():
+def sqlMerge():   # merges two or more objects selected by the user
     global mergeList, cObjects
     frameRange = []   # to store the first instant and last instant of the objects to be merged
     if len(mergeList)>1:
@@ -183,7 +182,6 @@ def sqlMerge():
             del mergeList[:]
         except sqlite3.Error, e:
             print "Error %s:" % e.args[0]
-
 
 def sqlTrack(objID, frames, coords):   # performs delete and insert operations on the sqlite (new file)
     try:
@@ -262,6 +260,7 @@ cv2.namedWindow('Video')
 cv2.setMouseCallback('Video', coordinates)
 width = int(cap.get(3))
 height = int(cap.get(4))
+newObjID = len(cObjects)
 
 while(cap.isOpened()):
     ret, frame = cap.read()
@@ -286,7 +285,9 @@ while(cap.isOpened()):
     elif k == 115:   # toggle split mode
         split = split != True
         if split is False:   # calling sqlSplit() while coming out of merge mode
-            sqlSplit()
+            if splitSelect:
+                sqlSplit(newObjID)
+                newObjID += 1
         track = False
         merge = False
     elif k == 109:   # toggle merge mode
