@@ -25,9 +25,11 @@ objTag = None   # stores selected object's id
 track = False   # turns on track mode if true
 merge = False   # turns on merge mode if true
 split = False   # turns on split mode if true
+delete = False   # turns on delete mode if true
 mergeList = []   # holds the id of objects to be merged
 trace = []   # holds the trace coordinates
 splitSelect = []   # holds trajectory ids selected for splitting
+deleteList = []   # holds object ids to be deleted
 pace = 0   # to adjust the video speed
 
 def findObject(frameNum, x=None, y=None):   # finds the object clicked on (utilizes original sqlite)
@@ -127,10 +129,32 @@ def drawEditBox(frame):   # for the static text
         cv2.putText(frame,"split mode", (width-125, 75), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255))
     else:
         cv2.putText(frame,"toggle split (s)", (width-125, 75), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255))
-    cv2.putText(frame,"reset edits (r)", (width-125, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255))
-    cv2.putText(frame,"video speed (0-4)", (width-150, 125), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255))
+    if delete is True:
+        cv2.rectangle(frame, (0, 0), (width, height), (0, 0, 255), 3)
+        cv2.putText(frame,"delete mode", (width-125, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255))
+    else:
+        cv2.putText(frame,"delete obj (o)", (width-125, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255))
+    cv2.putText(frame,"reset edits (r)", (width-125, 125), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255))
+    cv2.putText(frame,"video speed (0-4)", (width-150, 150), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255))
 
-def sqlSplit(newObjID):   # splits an object into two 
+def sqlDelete():
+    global deleteList
+    try:
+        connection = sqlite3.connect(newFilename)
+        cursor = connection.cursor()
+        id = None
+        for objID in deleteList:
+            if not id == objID:
+                id = objID
+                cursor.execute("delete from positions where trajectory_id in (select trajectory_id from objects_features where object_id = " + format(id) + ");")
+                cursor.execute("delete from objects_features where object_id = " + format(id) + ";")
+                cursor.execute("delete from objects where object_id = " + format(id) + ";")
+        connection.commit()
+        connection.close()
+    except sqlite3.Error, e:
+        print "Error %s:" % e.args[0]
+
+def sqlSplit(newObjID):   # splits an object into two
     global splitSelect, cObjects
     try:
         connection = sqlite3.connect(newFilename)
@@ -233,7 +257,7 @@ def tracing():   # extract data from the trace array, removing redundant data fo
     sqlTrack(temp, frames, coords)
 
 def coordinates(event, x, y, flags, param):
-    global drawing, cArray, fNo, objTag, trace
+    global drawing, cArray, fNo, objTag, trace, deleteList
     if event == cv2.EVENT_LBUTTONDOWN:
         print x, y
         drawing = True
@@ -244,6 +268,8 @@ def coordinates(event, x, y, flags, param):
                 print "tracing object: " + format(objTag) + " (" + format(x) + " ," + format(y) + ")"
         if split is True:
             findTrajectory(fNo)
+        if objTag is not None and delete == True:
+            deleteList.append(objTag)
     elif event == cv2.EVENT_MOUSEMOVE:
         if drawing == True:
             cArray.append([x, y])
@@ -282,6 +308,7 @@ while(cap.isOpened()):
         track = track != True
         merge = False
         split = False
+        delete = False
     elif k == 115:   # toggle split mode
         split = split != True
         if split is False:   # calling sqlSplit() while coming out of merge mode
@@ -290,11 +317,21 @@ while(cap.isOpened()):
                 newObjID += 1
         track = False
         merge = False
+        delete = False
     elif k == 109:   # toggle merge mode
         merge = merge != True
         if merge is False:   # calling sqlMerge() while coming out of merge mode
             sqlMerge()
         split = False
+        track = False
+        delete = False
+    elif k == 111:   # toggle delete mode
+        delete = delete != True
+        if delete is False:   # calling sqlDelete() while coming out of delete mode
+            if deleteList:
+                sqlDelete()
+        split = False
+        merge = False
         track = False
     elif k == 114:   # creates a copy of the original sqlite
         shutil.copy2(databaseFilename, newFilename)
